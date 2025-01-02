@@ -21,49 +21,48 @@ const ResumeScanner: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>('')
   const [progress, setProgress] = useState<number>(0)
-  const [jobId, setJobId] = useState<string>('')
   const navigate = useNavigate()
 
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    const selectedFile = e.target.files?.[0]
-    if (selectedFile && selectedFile.type === 'application/pdf') {
-      setFile(selectedFile)
-      setError('')
-    } else {
-      setError('Please upload a PDF file')
-      setFile(null)
-    }
-  }
+  const pollAnalysisStatus = async (id: string, attempts = 0): Promise<void> => {
+    const MAX_ATTEMPTS = 30 // 1 minute maximum (2s * 30)
 
-  const pollAnalysisStatus = async (id: string): Promise<void> => {
+    if (attempts >= MAX_ATTEMPTS) {
+      setError('Analysis timed out. Please try again.')
+      setLoading(false)
+      return
+    }
+
     try {
       const response = await fetch(`https://jobmatch-api.vercel.app/api/status/${id}`)
       const data: AnalysisStatus = await response.json()
 
-      if (response.ok) {
-        if (data.status === 'completed' && data.result) {
-          setLoading(false)
-          navigate('/dashboard', { state: { analysis: data.result } })
-        } else if (data.status === 'error') {
-          setError(data.error || 'Analysis failed')
-          setLoading(false)
-        } else if (data.status === 'processing') {
-          // Continue polling
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to check analysis status')
+      }
+
+      switch (data.status) {
+        case 'completed':
+          if (data.result) {
+            setLoading(false)
+            navigate('/dashboard', { state: { analysis: data.result } })
+          }
+          break
+        case 'error':
+          throw new Error(data.error || 'Analysis failed')
+        case 'processing':
           setProgress((oldProgress) => Math.min(oldProgress + 5, 90))
-          setTimeout(() => pollAnalysisStatus(id), 2000)
-        }
-      } else {
-        setError(data.error || 'Failed to check analysis status')
-        setLoading(false)
+          setTimeout(() => pollAnalysisStatus(id, attempts + 1), 2000)
+          break
       }
     } catch (err) {
-      setError('Failed to connect to server')
+      setError(err instanceof Error ? err.message : 'Failed to connect to server')
       setLoading(false)
     }
   }
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault()
+    
     if (!file || !jobDescription) {
       setError('Please provide both resume and job description')
       return
@@ -85,27 +84,39 @@ const ResumeScanner: React.FC = () => {
       
       const data = await response.json()
       
-      if (response.ok && data.job_id) {
-        setJobId(data.job_id)
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to start analysis')
+      }
+
+      if (data.job_id) {
         setProgress(30)
         pollAnalysisStatus(data.job_id)
       } else {
-        setError(data.error || 'Failed to start analysis')
-        setLoading(false)
+        throw new Error('No job ID received from server')
       }
     } catch (err) {
-      setError('Failed to connect to server')
+      setError(err instanceof Error ? err.message : 'Failed to connect to server')
       setLoading(false)
     }
   }
 
   useEffect(() => {
     return () => {
-      // Cleanup when component unmounts
       setLoading(false)
       setProgress(0)
     }
   }, [])
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>): void => {
+    const selectedFile = e.target.files?.[0]
+    if (selectedFile?.type === 'application/pdf') {
+      setFile(selectedFile)
+      setError('')
+    } else {
+      setError('Please upload a PDF file')
+      setFile(null)
+    }
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
