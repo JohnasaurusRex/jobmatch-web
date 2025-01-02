@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Upload, Check, FileText, Loader2 } from 'lucide-react'
+import { Upload, Check, Loader2 } from 'lucide-react'
 
 const ResumeScanner: React.FC = () => {
   const [file, setFile] = useState<File | null>(null)
@@ -41,7 +41,7 @@ const ResumeScanner: React.FC = () => {
     formData.append('jobDescription', jobDescription)
 
     try {
-      const response = await fetch('http://localhost:5000/api/analyze', {
+      const response = await fetch('https://jobmatch-api.vercel.app/api/analyze', {
         method: 'POST',
         body: formData,
       })
