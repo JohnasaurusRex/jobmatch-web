@@ -15,6 +15,8 @@ interface AnalysisStatus {
   error?: string
 }
 
+const API_BASE_URL = 'https://jobmatch-api.vercel.app'
+
 const ResumeScanner: React.FC = () => {
   const [file, setFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState<string>('')
@@ -33,12 +35,19 @@ const ResumeScanner: React.FC = () => {
     }
 
     try {
-      const response = await fetch(`https://jobmatch-api.vercel.app/api/status/${id}`)
-      const data: AnalysisStatus = await response.json()
+      const response = await fetch(`${API_BASE_URL}/api/status/${id}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        credentials: 'include'
+      })
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to check analysis status')
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
+
+      const data: AnalysisStatus = await response.json()
 
       switch (data.status) {
         case 'completed':
@@ -55,6 +64,7 @@ const ResumeScanner: React.FC = () => {
           break
       }
     } catch (err) {
+      console.error('Polling error:', err)
       setError(err instanceof Error ? err.message : 'Failed to connect to server')
       setLoading(false)
     }
@@ -77,17 +87,19 @@ const ResumeScanner: React.FC = () => {
     formData.append('jobDescription', jobDescription)
 
     try {
-      const response = await fetch('https://jobmatch-api.vercel.app/api/analyze', {
+      const response = await fetch(`${API_BASE_URL}/api/analyze`, {
         method: 'POST',
         body: formData,
+        credentials: 'include'
       })
       
-      const data = await response.json()
-      
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to start analysis')
+        const errorData = await response.json()
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
       }
 
+      const data = await response.json()
+      
       if (data.job_id) {
         setProgress(30)
         pollAnalysisStatus(data.job_id)
@@ -95,6 +107,7 @@ const ResumeScanner: React.FC = () => {
         throw new Error('No job ID received from server')
       }
     } catch (err) {
+      console.error('Submission error:', err)
       setError(err instanceof Error ? err.message : 'Failed to connect to server')
       setLoading(false)
     }
