@@ -9,12 +9,19 @@ import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Upload, Check, Loader2 } from 'lucide-react'
 
+interface AnalysisStatus {
+  status: 'processing' | 'completed' | 'error'
+  result?: any
+  error?: string
+}
+
 const ResumeScanner: React.FC = () => {
   const [file, setFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>('')
   const [progress, setProgress] = useState<number>(0)
+  const [jobId, setJobId] = useState<string>('')
   const navigate = useNavigate()
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>): void => {
@@ -28,14 +35,44 @@ const ResumeScanner: React.FC = () => {
     }
   }
 
+  const pollAnalysisStatus = async (id: string): Promise<void> => {
+    try {
+      const response = await fetch(`https://jobmatch-api.vercel.app/api/status/${id}`)
+      const data: AnalysisStatus = await response.json()
+
+      if (response.ok) {
+        if (data.status === 'completed' && data.result) {
+          setLoading(false)
+          navigate('/dashboard', { state: { analysis: data.result } })
+        } else if (data.status === 'error') {
+          setError(data.error || 'Analysis failed')
+          setLoading(false)
+        } else if (data.status === 'processing') {
+          // Continue polling
+          setProgress((oldProgress) => Math.min(oldProgress + 5, 90))
+          setTimeout(() => pollAnalysisStatus(id), 2000)
+        }
+      } else {
+        setError(data.error || 'Failed to check analysis status')
+        setLoading(false)
+      }
+    } catch (err) {
+      setError('Failed to connect to server')
+      setLoading(false)
+    }
+  }
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault()
     if (!file || !jobDescription) {
       setError('Please provide both resume and job description')
       return
     }
+    
     setLoading(true)
     setError('')
+    setProgress(10)
+    
     const formData = new FormData()
     formData.append('resume', file)
     formData.append('jobDescription', jobDescription)
@@ -45,31 +82,30 @@ const ResumeScanner: React.FC = () => {
         method: 'POST',
         body: formData,
       })
+      
       const data = await response.json()
-      if (response.ok) {
-        navigate('/dashboard', { state: { analysis: data } })
+      
+      if (response.ok && data.job_id) {
+        setJobId(data.job_id)
+        setProgress(30)
+        pollAnalysisStatus(data.job_id)
       } else {
-        setError(data.error || 'Analysis failed')
+        setError(data.error || 'Failed to start analysis')
+        setLoading(false)
       }
     } catch (err) {
       setError('Failed to connect to server')
-    } finally {
       setLoading(false)
-      setProgress(0)
     }
   }
 
   useEffect(() => {
-    if (loading) {
-      const interval = setInterval(() => {
-        setProgress((oldProgress) => {
-          const newProgress = Math.min(oldProgress + 10, 90)
-          return newProgress
-        })
-      }, 500)
-      return () => clearInterval(interval)
+    return () => {
+      // Cleanup when component unmounts
+      setLoading(false)
+      setProgress(0)
     }
-  }, [loading])
+  }, [])
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
@@ -88,15 +124,15 @@ const ResumeScanner: React.FC = () => {
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => document.getElementById('resume-upload')?.click()}
-                      className="w-full"
-                    >
-                      <Upload className="mr-2 h-4 w-4" />
-                      Choose File
-                    </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => document.getElementById('resume-upload')?.click()}
+                        className="w-full"
+                      >
+                        <Upload className="mr-2 h-4 w-4" />
+                        Choose File
+                      </Button>
                     </TooltipTrigger>
                     <TooltipContent>
                       <p>Upload a PDF version of your resume</p>
@@ -146,7 +182,9 @@ const ResumeScanner: React.FC = () => {
               <div className="space-y-2">
                 <Progress value={progress} className="w-full" />
                 <p className="text-sm text-center text-muted-foreground">
-                  Analyzing your resume... This may take a moment.
+                  {progress < 30 
+                    ? "Starting analysis..."
+                    : "Analyzing your resume... This may take a few moments."}
                 </p>
               </div>
             )}
@@ -158,4 +196,3 @@ const ResumeScanner: React.FC = () => {
 }
 
 export default ResumeScanner
-
